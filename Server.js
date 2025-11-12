@@ -1,12 +1,51 @@
 const express = require('express');
+const jwt = require('jsonwebtoken');
 const app = express();
 const PORT = 5000;
 
 app.use(express.json());
 
+const SECRET_KEY="secretkey";
+
 let tasks=[];
+
+const users=[
+    {id:1, username: 'admin', password: 'admin123',role: 'admin'},
+    {id:2, username: 'user', password: 'user123', role: 'user'}
+];
+
+app.post('/login',(req,res)=>{
+    const {username,password}= req.body;
+    const user=users.find(u=>u.username ===username &&u.password ===password);
+    if(!user)return res.status(400).json({message:"Invalid credentials"});
+
+    const token= jwt.sign({id: user.id, role: user.role},SECRET_KEY,{expiresIn:'1h'});
+    res.json({token});
+});
+
+function tokenAuthentication(req,res,next){
+    const authHeader= req.headers['authorization'];
+    const token=authHeader && authHeader.split(' ')[1];
+    if(!token)return res.status(401).json({message:"No token provided"});
+
+    jwt.verify(token, SECRET_KEY, (err,user)=>{
+        if(err)return res.status(403).json({message:"Invalid token"});
+        req.user = user;
+        next();
+    });
+}
+
+function roleAuthorization(role){
+    return(req,res,next)=>{
+        if(req.user.role!==role){
+            return res.status(403).json({message: "Insufficient rights"});
+        }
+        next();
+    };
+}
+
 //GET-to fetch all tasks from list
-app.get('/tasks',(req,res)=>{
+app.get('/tasks',tokenAuthentication,(req,res)=>{
     let page= parseInt(req.query.page)||1;
     let limit= parseInt(req.query.limit)||10;
     let{sort, order, title, description}=req.query;
@@ -50,7 +89,7 @@ app.get('/tasks',(req,res)=>{
     res.json(response);
 });
 
-app.get('/tasks/:id',(req,res)=>{
+app.get('/tasks/:id',tokenAuthentication,(req,res)=>{
     const task = tasks.find(t=> t.id ===parseInt(req.params.id));
     if(!task){
         return res.status(404).json({message:'Task not found'});
@@ -63,7 +102,7 @@ app.get('/',(req,res)=>{
 });
 
 //POST-to add a new task in list
-app.post('/tasks',(req,res)=>{
+app.post('/tasks',tokenAuthentication,(req,res)=>{
     const{title,description}=req.body;
     if(!title || !description){
         return res.status(400).json({message:'Title and description required'
@@ -78,7 +117,7 @@ app.post('/tasks',(req,res)=>{
     res.status(201).json(newTask);
 });
 //PUT-update a task by id in a list
-app.put('/tasks/:id',(req,res)=>{
+app.put('/tasks/:id',tokenAuthentication,(req,res)=>{
     const task = tasks.find(t=>t.id === parseInt(req.params.id));
     if(!task){
         return res.status(404).json({message:'Task not found'});
@@ -92,7 +131,7 @@ app.put('/tasks/:id',(req,res)=>{
     res.json(task);
 });
 
-app.delete('/tasks/:id',(req,res)=>{
+app.delete('/tasks/:id',tokenAuthentication,roleAuthorization('admin'),(req,res)=>{
     const taskIndex =tasks.findIndex(t=>t.id ===parseInt(req.params.id));
     if(taskIndex ===-1)
         {
